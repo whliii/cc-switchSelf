@@ -691,9 +691,7 @@ function App() {
           return (
             <PromptPanel
               ref={promptPanelRef}
-              open={true}
               onOpenChange={() => setCurrentView("providers")}
-              appId={activeApp}
             />
           );
         case "skills":
@@ -897,8 +895,7 @@ function App() {
                 </Button>
                 <h1 className="text-lg font-semibold">
                   {currentView === "settings" && t("settings.title")}
-                  {currentView === "prompts" &&
-                    t("prompts.title", { appName: t(`apps.${activeApp}`) })}
+                  {currentView === "prompts" && t("prompts.manage")}
                   {currentView === "skills" && t("skills.title")}
                   {currentView === "skillsDiscovery" && t("skills.title")}
                   {currentView === "mcp" && t("mcp.unifiedPanel.title")}

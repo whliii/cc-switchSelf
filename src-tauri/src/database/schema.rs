@@ -64,11 +64,18 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        // 4. Prompts 表
+        // 4. Prompts 表（v7+ 全局化结构）
         conn.execute("CREATE TABLE IF NOT EXISTS prompts (
-            id TEXT NOT NULL, app_type TEXT NOT NULL, name TEXT NOT NULL, content TEXT NOT NULL,
-            description TEXT, enabled BOOLEAN NOT NULL DEFAULT 1, created_at INTEGER, updated_at INTEGER,
-            PRIMARY KEY (id, app_type)
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            description TEXT,
+            claude_enabled   BOOLEAN NOT NULL DEFAULT 0,
+            codex_enabled    BOOLEAN NOT NULL DEFAULT 0,
+            gemini_enabled   BOOLEAN NOT NULL DEFAULT 0,
+            opencode_enabled BOOLEAN NOT NULL DEFAULT 0,
+            created_at INTEGER,
+            updated_at INTEGER
         )", []).map_err(|e| AppError::Database(e.to_string()))?;
 
         // 5. Skills 表（v3.10.0+ 统一结构）
@@ -382,6 +389,11 @@ impl Database {
                         log::info!("迁移数据库从 v5 到 v6（Agent 管理支持）");
                         Self::migrate_v5_to_v6(conn)?;
                         Self::set_user_version(conn, 6)?;
+                    }
+                    6 => {
+                        log::info!("迁移数据库从 v6 到 v7（Prompts 全局化）");
+                        Self::migrate_v6_to_v7(conn)?;
+                        Self::set_user_version(conn, 7)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -957,6 +969,115 @@ impl Database {
         .map_err(|e| AppError::Database(e.to_string()))?;
 
         log::info!("v5 -> v6 迁移完成：已添加 agent_definitions 表");
+        Ok(())
+    }
+
+    /// v6 -> v7 迁移：Prompts 全局化（从 per-app 结构迁移到全局结构）
+    fn migrate_v6_to_v7(conn: &Connection) -> Result<(), AppError> {
+        // 幂等性检查：若旧 prompts 表已无 app_type 列，则已迁移过，跳过
+        if !Self::has_column(conn, "prompts", "app_type")? {
+            log::info!("prompts 表已无 app_type 列，跳过 v6->v7 迁移");
+            return Ok(());
+        }
+
+        log::info!("开始迁移 prompts 表到 v7 全局化结构...");
+
+        // 1. 重命名旧表
+        conn.execute("ALTER TABLE prompts RENAME TO prompts_legacy", [])
+            .map_err(|e| AppError::Database(format!("重命名旧 prompts 表失败: {e}")))?;
+
+        // 2. 创建新表
+        conn.execute(
+            "CREATE TABLE prompts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                description TEXT,
+                claude_enabled   BOOLEAN NOT NULL DEFAULT 0,
+                codex_enabled    BOOLEAN NOT NULL DEFAULT 0,
+                gemini_enabled   BOOLEAN NOT NULL DEFAULT 0,
+                opencode_enabled BOOLEAN NOT NULL DEFAULT 0,
+                created_at INTEGER,
+                updated_at INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建新 prompts 表失败: {e}")))?;
+
+        // 3. 读取旧数据
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, app_type, name, content, description, enabled, created_at, updated_at
+                 FROM prompts_legacy ORDER BY created_at ASC, id ASC",
+            )
+            .map_err(|e| AppError::Database(format!("查询 prompts_legacy 失败: {e}")))?;
+
+        #[derive(Debug)]
+        struct LegacyRow {
+            id: String,
+            app_type: String,
+            name: String,
+            content: String,
+            description: Option<String>,
+            enabled: bool,
+            created_at: Option<i64>,
+            updated_at: Option<i64>,
+        }
+
+        let rows: Vec<LegacyRow> = stmt
+            .query_map([], |row| {
+                Ok(LegacyRow {
+                    id: row.get(0)?,
+                    app_type: row.get(1)?,
+                    name: row.get(2)?,
+                    content: row.get(3)?,
+                    description: row.get(4)?,
+                    enabled: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
+            })
+            .map_err(|e| AppError::Database(format!("读取 prompts_legacy 失败: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Database(format!("解析 prompts_legacy 失败: {e}")))?;
+
+        // 4. 迁移：按 id 分组，先 INSERT 基础行，再 UPDATE app_enabled 列
+        for row in &rows {
+            // INSERT OR IGNORE: 同 id 多行时只插入一次
+            conn.execute(
+                "INSERT OR IGNORE INTO prompts (id, name, content, description, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    row.id,
+                    row.name,
+                    row.content,
+                    row.description,
+                    row.created_at,
+                    row.updated_at,
+                ],
+            )
+            .map_err(|e| AppError::Database(format!("INSERT prompts {} 失败: {e}", row.id)))?;
+
+            // 根据 app_type 更新对应的 enabled 列
+            if row.enabled {
+                let col = match row.app_type.as_str() {
+                    "claude" => "claude_enabled",
+                    "codex" => "codex_enabled",
+                    "gemini" => "gemini_enabled",
+                    "opencode" | "openclaw" => "opencode_enabled",
+                    _ => continue,
+                };
+                let sql = format!("UPDATE prompts SET {col} = 1 WHERE id = ?1");
+                conn.execute(&sql, rusqlite::params![row.id])
+                    .map_err(|e| AppError::Database(format!("UPDATE {col} 失败: {e}")))?;
+            }
+        }
+
+        // 5. 删除旧表
+        conn.execute("DROP TABLE prompts_legacy", [])
+            .map_err(|e| AppError::Database(format!("删除 prompts_legacy 失败: {e}")))?;
+
+        log::info!("v6 -> v7 迁移完成：prompts 表已全局化，共迁移 {} 条记录", rows.len());
         Ok(())
     }
 

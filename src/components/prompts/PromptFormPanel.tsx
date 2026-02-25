@@ -1,150 +1,165 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { Save } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import MarkdownEditor from "@/components/MarkdownEditor";
 import { FullScreenPanel } from "@/components/common/FullScreenPanel";
-import type { Prompt, AppId } from "@/lib/api";
+import type { Prompt, PromptApps } from "@/lib/api/prompts";
+import { useUpsertPrompt } from "@/hooks/usePrompts";
+import { MCP_SKILLS_APP_IDS } from "@/config/appConfig";
 
 interface PromptFormPanelProps {
-  appId: AppId;
   editingId?: string;
   initialData?: Prompt;
-  onSave: (id: string, prompt: Prompt) => Promise<void>;
   onClose: () => void;
 }
 
 const PromptFormPanel: React.FC<PromptFormPanelProps> = ({
-  appId,
   editingId,
   initialData,
-  onSave,
   onClose,
 }) => {
   const { t } = useTranslation();
-  const appName = t(`apps.${appId}`);
-  const filenameMap: Record<AppId, string> = {
-    claude: "CLAUDE.md",
-    codex: "AGENTS.md",
-    gemini: "GEMINI.md",
-    opencode: "AGENTS.md",
-    openclaw: "AGENTS.md",
-  };
-  const filename = filenameMap[appId];
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [content, setContent] = useState("");
-  const [saving, setSaving] = useState(false);
+  const upsertMutation = useUpsertPrompt();
+  const isEditing = !!editingId;
+
+  const [name, setName] = useState(initialData?.name || "");
+  const [description, setDescription] = useState(initialData?.description || "");
+  const [content, setContent] = useState(initialData?.content || "");
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [enabledApps, setEnabledApps] = useState<PromptApps>({
+    claude: initialData?.apps.claude ?? false,
+    codex: initialData?.apps.codex ?? false,
+    gemini: initialData?.apps.gemini ?? false,
+    opencode: initialData?.apps.opencode ?? false,
+  });
 
   useEffect(() => {
     setIsDarkMode(document.documentElement.classList.contains("dark"));
-
     const observer = new MutationObserver(() => {
       setIsDarkMode(document.documentElement.classList.contains("dark"));
     });
-
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
     });
-
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (initialData) {
-      setName(initialData.name);
-      setDescription(initialData.description || "");
-      setContent(initialData.content);
-    }
-  }, [initialData]);
-
   const handleSave = async () => {
-    if (!name.trim()) {
-      return;
-    }
+    if (!name.trim()) return;
 
-    setSaving(true);
+    const now = Math.floor(Date.now() / 1000);
+    const prompt: Prompt = {
+      id: editingId || `prompt-${Date.now()}`,
+      name: name.trim(),
+      description: description.trim() || undefined,
+      content: content.trim(),
+      apps: enabledApps,
+      createdAt: initialData?.createdAt ?? now,
+      updatedAt: now,
+    };
+
     try {
-      const id = editingId || `prompt-${Date.now()}`;
-      const timestamp = Math.floor(Date.now() / 1000);
-      const prompt: Prompt = {
-        id,
-        name: name.trim(),
-        description: description.trim() || undefined,
-        content: content.trim(),
-        enabled: initialData?.enabled || false,
-        createdAt: initialData?.createdAt || timestamp,
-        updatedAt: timestamp,
-      };
-      await onSave(id, prompt);
+      await upsertMutation.mutateAsync(prompt);
+      toast.success(t("prompts.saveSuccess"), { closeButton: true });
       onClose();
     } catch (error) {
-      // Error handled by hook
-    } finally {
-      setSaving(false);
+      toast.error(t("prompts.saveFailed"), { description: String(error) });
     }
   };
 
-  const title = editingId
-    ? t("prompts.editTitle", { appName })
-    : t("prompts.addTitle", { appName });
+  const title = isEditing ? t("prompts.editTitle") : t("prompts.addTitle");
 
   return (
     <FullScreenPanel
-      isOpen={true}
+      isOpen
       title={title}
       onClose={onClose}
       footer={
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!name.trim() || saving}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving ? t("common.saving") : t("common.save")}
-        </Button>
+        <>
+          <Button variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={!name.trim() || upsertMutation.isPending}
+            className="gap-2"
+          >
+            <Save size={14} />
+            {upsertMutation.isPending ? t("common.saving") : t("common.save")}
+          </Button>
+        </>
       }
     >
-      <div className="glass rounded-xl p-6 border border-white/10 space-y-6">
-        <div>
-          <Label htmlFor="name" className="text-foreground">
+      <div className="space-y-5 max-w-2xl">
+        {/* Name */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-foreground">
             {t("prompts.name")}
-          </Label>
+          </label>
           <Input
-            id="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t("prompts.namePlaceholder")}
-            className="mt-2"
           />
         </div>
 
-        <div>
-          <Label htmlFor="description" className="text-foreground">
+        {/* Description */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-foreground">
             {t("prompts.description")}
-          </Label>
+            <span className="text-muted-foreground ml-1 font-normal text-xs">
+              ({t("common.auto", { defaultValue: "optional" })})
+            </span>
+          </label>
           <Input
-            id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t("prompts.descriptionPlaceholder")}
-            className="mt-2"
           />
         </div>
 
-        <div>
-          <Label htmlFor="content" className="block mb-2 text-foreground">
+        {/* Target Apps */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
+            {t("prompts.targetApps", { defaultValue: "Target Apps" })}
+          </label>
+          <div className="flex items-center gap-4 flex-wrap">
+            {MCP_SKILLS_APP_IDS.map((app) => (
+              <label
+                key={app}
+                className="flex items-center gap-2 cursor-pointer select-none text-sm"
+              >
+                <Checkbox
+                  checked={enabledApps[app as keyof PromptApps]}
+                  onCheckedChange={(checked) =>
+                    setEnabledApps((prev) => ({
+                      ...prev,
+                      [app]: !!checked,
+                    }))
+                  }
+                />
+                <span className="capitalize">{app}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-foreground">
             {t("prompts.content")}
-          </Label>
+          </label>
           <MarkdownEditor
             value={content}
             onChange={setContent}
-            placeholder={t("prompts.contentPlaceholder", { filename })}
+            placeholder={t("prompts.contentPlaceholder", { filename: "CLAUDE.md" })}
             darkMode={isDarkMode}
-            minHeight="167px"
+            minHeight="300px"
           />
         </div>
       </div>

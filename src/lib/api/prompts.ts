@@ -1,31 +1,38 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AppId } from "./types";
 
+export interface PromptApps {
+  claude: boolean;
+  codex: boolean;
+  gemini: boolean;
+  opencode: boolean;
+}
+
 export interface Prompt {
   id: string;
   name: string;
   content: string;
   description?: string;
-  enabled: boolean;
+  apps: PromptApps;
   createdAt?: number;
   updatedAt?: number;
 }
 
 export const promptsApi = {
-  async getPrompts(app: AppId): Promise<Record<string, Prompt>> {
-    return await invoke("get_prompts", { app });
+  async getAllPrompts(): Promise<Record<string, Prompt>> {
+    return await invoke("get_prompts");
   },
 
-  async upsertPrompt(app: AppId, id: string, prompt: Prompt): Promise<void> {
-    return await invoke("upsert_prompt", { app, id, prompt });
+  async upsertPrompt(prompt: Prompt): Promise<void> {
+    return await invoke("upsert_prompt", { prompt });
   },
 
-  async deletePrompt(app: AppId, id: string): Promise<void> {
-    return await invoke("delete_prompt", { app, id });
+  async deletePrompt(id: string): Promise<void> {
+    return await invoke("delete_prompt", { id });
   },
 
-  async enablePrompt(app: AppId, id: string): Promise<void> {
-    return await invoke("enable_prompt", { app, id });
+  async toggleApp(id: string, app: AppId, enabled: boolean): Promise<void> {
+    return await invoke("toggle_prompt_app", { id, app, enabled });
   },
 
   async importFromFile(app: AppId): Promise<string> {

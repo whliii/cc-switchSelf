@@ -15,4 +15,4 @@ export { sessionsApi } from "./sessions";
 export { workspaceApi } from "./workspace";
 export * as configApi from "./config";
 export type { ProviderSwitchEvent } from "./providers";
-export type { Prompt } from "./prompts";
+export type { Prompt, PromptApps } from "./prompts";

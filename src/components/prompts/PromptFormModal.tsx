@@ -82,7 +82,7 @@ const PromptFormModal: React.FC<PromptFormModalProps> = ({
         name: name.trim(),
         description: description.trim() || undefined,
         content: content.trim(),
-        enabled: initialData?.enabled || false,
+        apps: initialData?.apps || { claude: false, codex: false, gemini: false, opencode: false },
         createdAt: initialData?.createdAt || timestamp,
         updatedAt: timestamp,
       };

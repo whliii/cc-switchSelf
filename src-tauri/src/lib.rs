@@ -891,7 +891,7 @@ pub fn run() {
             commands::get_prompts,
             commands::upsert_prompt,
             commands::delete_prompt,
-            commands::enable_prompt,
+            commands::toggle_prompt_app,
             commands::import_prompt_from_file,
             commands::get_current_prompt_file_content,
             // ours: endpoint speed test + custom endpoint management

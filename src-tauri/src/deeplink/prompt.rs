@@ -5,7 +5,7 @@
 use super::utils::decode_base64_param;
 use super::DeepLinkImportRequest;
 use crate::error::AppError;
-use crate::prompt::Prompt;
+use crate::prompt::{Prompt, PromptApps};
 use crate::services::PromptService;
 use crate::store::AppState;
 use crate::AppType;
@@ -57,28 +57,43 @@ pub fn import_prompt_from_deeplink(
         .to_lowercase();
     let id = format!("{sanitized_name}-{timestamp}");
 
-    // Check if we should enable this prompt
+    // Check if we should enable this prompt for the given app
     let should_enable = request.enabled.unwrap_or(false);
 
-    // Create Prompt (initially disabled)
+    // Build apps flags (enabled only if should_enable)
+    let mut apps = PromptApps::default();
+    if should_enable {
+        match app_type {
+            AppType::Claude => apps.claude = true,
+            AppType::Codex => apps.codex = true,
+            AppType::Gemini => apps.gemini = true,
+            AppType::OpenCode | AppType::OpenClaw => apps.opencode = true,
+        }
+    }
+
+    // Create Prompt
     let prompt = Prompt {
         id: id.clone(),
         name: name.clone(),
         content,
         description: request.description,
-        enabled: false, // Always start as disabled, will be enabled later if needed
+        apps,
         created_at: Some(timestamp),
         updated_at: Some(timestamp),
     };
 
-    // Save using PromptService
-    PromptService::upsert_prompt(state, app_type.clone(), &id, prompt)?;
-
-    // If enabled flag is set, enable this prompt (which will disable others)
+    // Save using PromptService (will handle file sync if enabled)
     if should_enable {
-        PromptService::enable_prompt(state, app_type, &id)?;
+        // Use toggle_prompt_app to enforce mutual exclusion
+        let prompt_for_save = Prompt {
+            apps: PromptApps::default(), // Save without enabled first
+            ..prompt.clone()
+        };
+        PromptService::upsert_prompt(state, prompt_for_save)?;
+        PromptService::toggle_prompt_app(state, &id, app_type, true)?;
         log::info!("Successfully imported and enabled prompt '{name}' for {app_str}");
     } else {
+        PromptService::upsert_prompt(state, prompt)?;
         log::info!("Successfully imported prompt '{name}' for {app_str} (disabled)");
     }
 

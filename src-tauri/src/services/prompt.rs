@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use crate::app_config::AppType;
 use crate::config::write_text_file;
 use crate::error::AppError;
-use crate::prompt::Prompt;
+use crate::prompt::{Prompt, PromptApps};
 use crate::prompt_files::prompt_file_path;
 use crate::store::AppState;
 
@@ -15,134 +15,145 @@ fn get_unix_timestamp() -> Result<i64, AppError> {
         .map_err(|e| AppError::Message(format!("Failed to get system time: {e}")))
 }
 
+/// 将 AppType 映射到数据库列名
+fn app_to_col(app: &AppType) -> &'static str {
+    match app {
+        AppType::Claude => "claude_enabled",
+        AppType::Codex => "codex_enabled",
+        AppType::Gemini => "gemini_enabled",
+        AppType::OpenCode | AppType::OpenClaw => "opencode_enabled",
+    }
+}
+
+/// 读取 prompt 的 app 启用状态
+fn app_enabled(apps: &PromptApps, app: &AppType) -> bool {
+    match app {
+        AppType::Claude => apps.claude,
+        AppType::Codex => apps.codex,
+        AppType::Gemini => apps.gemini,
+        AppType::OpenCode | AppType::OpenClaw => apps.opencode,
+    }
+}
+
+/// 写入 app 的提示词文件，若内容为空则清空文件
+fn sync_app_file(app: &AppType, content: Option<&str>) -> Result<(), AppError> {
+    let path = prompt_file_path(app)?;
+    let text = content.unwrap_or("");
+    write_text_file(&path, text)
+}
+
 pub struct PromptService;
 
 impl PromptService {
-    pub fn get_prompts(
-        state: &AppState,
-        app: AppType,
-    ) -> Result<IndexMap<String, Prompt>, AppError> {
-        state.db.get_prompts(app.as_str())
+    /// 获取所有提示词（全局）
+    pub fn get_prompts(state: &AppState) -> Result<IndexMap<String, Prompt>, AppError> {
+        state.db.get_prompts()
     }
 
-    pub fn upsert_prompt(
-        state: &AppState,
-        app: AppType,
-        _id: &str,
-        prompt: Prompt,
-    ) -> Result<(), AppError> {
-        // 检查是否为已启用的提示词
-        let is_enabled = prompt.enabled;
+    /// 新增或更新提示词
+    ///
+    /// 保存后，对每个 app 检查新数据中的 enabled 标志：
+    /// - 若 enabled=true，写入对应 app 文件
+    /// - 若 enabled=false，且该 app 现在没有任何启用提示词，清空文件
+    pub fn upsert_prompt(state: &AppState, prompt: Prompt) -> Result<(), AppError> {
+        let new_apps = prompt.apps.clone();
+        state.db.save_prompt(&prompt)?;
 
-        state.db.save_prompt(app.as_str(), &prompt)?;
-
-        if is_enabled {
-            // 启用提示词：写入内容到文件
-            let target_path = prompt_file_path(&app)?;
-            write_text_file(&target_path, &prompt.content)?;
-        } else {
-            // 禁用提示词：检查是否还有其他已启用的提示词
-            let prompts = state.db.get_prompts(app.as_str())?;
-            let any_enabled = prompts.values().any(|p| p.enabled);
-
-            if !any_enabled {
-                // 所有提示词都已禁用，清空文件
-                let target_path = prompt_file_path(&app)?;
-                if target_path.exists() {
-                    write_text_file(&target_path, "")?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn delete_prompt(state: &AppState, app: AppType, id: &str) -> Result<(), AppError> {
-        let prompts = state.db.get_prompts(app.as_str())?;
-
-        if let Some(prompt) = prompts.get(id) {
-            if prompt.enabled {
-                return Err(AppError::InvalidInput("无法删除已启用的提示词".to_string()));
-            }
-        }
-
-        state.db.delete_prompt(app.as_str(), id)?;
-        Ok(())
-    }
-
-    pub fn enable_prompt(state: &AppState, app: AppType, id: &str) -> Result<(), AppError> {
-        // 回填当前 live 文件内容到已启用的提示词，或创建备份
-        let target_path = prompt_file_path(&app)?;
-        if target_path.exists() {
-            if let Ok(live_content) = std::fs::read_to_string(&target_path) {
-                if !live_content.trim().is_empty() {
-                    let mut prompts = state.db.get_prompts(app.as_str())?;
-
-                    // 尝试回填到当前已启用的提示词
-                    if let Some((enabled_id, enabled_prompt)) = prompts
-                        .iter_mut()
-                        .find(|(_, p)| p.enabled)
-                        .map(|(id, p)| (id.clone(), p))
-                    {
-                        let timestamp = get_unix_timestamp()?;
-                        enabled_prompt.content = live_content.clone();
-                        enabled_prompt.updated_at = Some(timestamp);
-                        log::info!("回填 live 提示词内容到已启用项: {enabled_id}");
-                        state.db.save_prompt(app.as_str(), enabled_prompt)?;
-                    } else {
-                        // 没有已启用的提示词，则创建一次备份（避免重复备份）
-                        let content_exists = prompts
-                            .values()
-                            .any(|p| p.content.trim() == live_content.trim());
-                        if !content_exists {
-                            let timestamp = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() as i64;
-                            let backup_id = format!("backup-{timestamp}");
-                            let backup_prompt = Prompt {
-                                id: backup_id.clone(),
-                                name: format!(
-                                    "原始提示词 {}",
-                                    chrono::Local::now().format("%Y-%m-%d %H:%M")
-                                ),
-                                content: live_content,
-                                description: Some("自动备份的原始提示词".to_string()),
-                                enabled: false,
-                                created_at: Some(timestamp),
-                                updated_at: Some(timestamp),
-                            };
-                            log::info!("回填 live 提示词内容，创建备份: {backup_id}");
-                            state.db.save_prompt(app.as_str(), &backup_prompt)?;
+        let all_prompts = state.db.get_prompts()?;
+        let apps = [
+            AppType::Claude,
+            AppType::Codex,
+            AppType::Gemini,
+            AppType::OpenCode,
+        ];
+        for app in &apps {
+            if app_enabled(&new_apps, app) {
+                sync_app_file(app, Some(&prompt.content))?;
+            } else {
+                // 检查是否还有其他启用的提示词
+                let still_enabled = all_prompts
+                    .values()
+                    .any(|p| p.id != prompt.id && app_enabled(&p.apps, app));
+                if !still_enabled {
+                    // 若刚保存的也已禁用，确认再清空
+                    let just_saved_enabled = all_prompts
+                        .get(&prompt.id)
+                        .map(|p| app_enabled(&p.apps, app))
+                        .unwrap_or(false);
+                    if !just_saved_enabled {
+                        let path = prompt_file_path(app)?;
+                        if path.exists() {
+                            let _ = write_text_file(&path, "");
                         }
                     }
                 }
             }
         }
-
-        // 启用目标提示词并写入文件
-        let mut prompts = state.db.get_prompts(app.as_str())?;
-
-        for prompt in prompts.values_mut() {
-            prompt.enabled = false;
-        }
-
-        if let Some(prompt) = prompts.get_mut(id) {
-            prompt.enabled = true;
-            write_text_file(&target_path, &prompt.content)?; // 原子写入
-            state.db.save_prompt(app.as_str(), prompt)?;
-        } else {
-            return Err(AppError::InvalidInput(format!("提示词 {id} 不存在")));
-        }
-
-        // Save all prompts to disable others
-        for (_, prompt) in prompts.iter() {
-            state.db.save_prompt(app.as_str(), prompt)?;
-        }
-
         Ok(())
     }
 
+    /// 删除提示词
+    ///
+    /// 若该提示词在某个 app 中处于启用状态，删除后清空对应 app 文件。
+    pub fn delete_prompt(state: &AppState, id: &str) -> Result<(), AppError> {
+        // 先读出当前状态，以便删除后清理文件
+        let prompts = state.db.get_prompts()?;
+        let target = prompts.get(id).cloned();
+
+        state.db.delete_prompt(id)?;
+
+        if let Some(prompt) = target {
+            let apps = [
+                AppType::Claude,
+                AppType::Codex,
+                AppType::Gemini,
+                AppType::OpenCode,
+            ];
+            for app in &apps {
+                if app_enabled(&prompt.apps, app) {
+                    // 被删除的是该 app 的活跃提示词，清空文件
+                    let path = prompt_file_path(app)?;
+                    if path.exists() {
+                        let _ = write_text_file(&path, "");
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// 切换提示词对指定 app 的启用状态（互斥）
+    pub fn toggle_prompt_app(
+        state: &AppState,
+        id: &str,
+        app: AppType,
+        enabled: bool,
+    ) -> Result<(), AppError> {
+        let col = app_to_col(&app);
+        state.db.toggle_prompt_app(id, col, enabled)?;
+
+        // 同步文件
+        if enabled {
+            // 写入被启用提示词的内容
+            let prompts = state.db.get_prompts()?;
+            if let Some(prompt) = prompts.get(id) {
+                sync_app_file(&app, Some(&prompt.content))?;
+            }
+        } else {
+            // 检查是否还有其他启用的提示词
+            let prompts = state.db.get_prompts()?;
+            let any_enabled = prompts.values().any(|p| app_enabled(&p.apps, &app));
+            if !any_enabled {
+                let path = prompt_file_path(&app)?;
+                if path.exists() {
+                    let _ = write_text_file(&path, "");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// 从文件导入提示词
     pub fn import_from_file(state: &AppState, app: AppType) -> Result<String, AppError> {
         let file_path = prompt_file_path(&app)?;
 
@@ -163,12 +174,12 @@ impl PromptService {
             ),
             content,
             description: Some("从现有配置文件导入".to_string()),
-            enabled: false,
+            apps: PromptApps::default(),
             created_at: Some(timestamp),
             updated_at: Some(timestamp),
         };
 
-        Self::upsert_prompt(state, app, &id, prompt)?;
+        Self::upsert_prompt(state, prompt)?;
         Ok(id)
     }
 
@@ -183,25 +194,23 @@ impl PromptService {
     }
 
     /// 首次启动时从现有提示词文件自动导入（如果存在）
-    /// 返回导入的数量
+    /// 检查是否已有该 app 启用的提示词，无则导入并置对应 app_enabled=true
     pub fn import_from_file_on_first_launch(
         state: &AppState,
         app: AppType,
     ) -> Result<usize, AppError> {
-        // 幂等性保护：该应用已有提示词则跳过
-        let existing = state.db.get_prompts(app.as_str())?;
-        if !existing.is_empty() {
+        // 幂等性保护：该 app 已有启用的提示词则跳过
+        let existing = state.db.get_prompts()?;
+        let already_enabled = existing.values().any(|p| app_enabled(&p.apps, &app));
+        if already_enabled {
             return Ok(0);
         }
 
         let file_path = prompt_file_path(&app)?;
-
-        // 检查文件是否存在
         if !file_path.exists() {
             return Ok(0);
         }
 
-        // 读取文件内容
         let content = match std::fs::read_to_string(&file_path) {
             Ok(c) => c,
             Err(e) => {
@@ -210,16 +219,24 @@ impl PromptService {
             }
         };
 
-        // 检查内容是否为空
         if content.trim().is_empty() {
             return Ok(0);
         }
 
         log::info!("发现提示词文件，自动导入: {file_path:?}");
 
-        // 创建提示词对象
         let timestamp = get_unix_timestamp()?;
         let id = format!("auto-imported-{timestamp}");
+
+        // 构建 apps，只启用当前 app
+        let mut apps = PromptApps::default();
+        match app {
+            AppType::Claude => apps.claude = true,
+            AppType::Codex => apps.codex = true,
+            AppType::Gemini => apps.gemini = true,
+            AppType::OpenCode | AppType::OpenClaw => apps.opencode = true,
+        }
+
         let prompt = Prompt {
             id: id.clone(),
             name: format!(
@@ -228,13 +245,12 @@ impl PromptService {
             ),
             content,
             description: Some("Automatically imported on first launch".to_string()),
-            enabled: true, // 首次导入时自动启用
+            apps,
             created_at: Some(timestamp),
             updated_at: Some(timestamp),
         };
 
-        // 保存到数据库
-        state.db.save_prompt(app.as_str(), &prompt)?;
+        state.db.save_prompt(&prompt)?;
 
         log::info!("自动导入完成: {}", app.as_str());
         Ok(1)

@@ -150,36 +150,41 @@ impl Database {
         tx: &rusqlite::Transaction<'_>,
         config: &MultiAppConfig,
     ) -> Result<(), AppError> {
+        // 迁移各 app 的提示词到全局表
+        // 注意：旧 JSON 中的 enabled 状态无法保留（字段已迁移为 apps 结构），
+        // 迁移后提示词默认全部禁用，用户可手动重新启用。
         let migrate_app_prompts = |prompts_map: &std::collections::HashMap<
             String,
             crate::prompt::Prompt,
         >,
-                                   app_type: &str|
+                                   app_enabled_col: &str|
          -> Result<(), AppError> {
             for (id, prompt) in prompts_map {
+                // INSERT OR IGNORE：同 id 只插入一次（多 app 同名 id 时保留第一次插入）
                 tx.execute(
-                        "INSERT OR REPLACE INTO prompts (
-                            id, app_type, name, content, description, enabled, created_at, updated_at
-                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                        params![
-                            id,
-                            app_type,
-                            prompt.name,
-                            prompt.content,
-                            prompt.description,
-                            prompt.enabled,
-                            prompt.created_at,
-                            prompt.updated_at,
-                        ],
-                    )
-                    .map_err(|e| AppError::Database(format!("Migrate prompt failed: {e}")))?;
+                    "INSERT OR IGNORE INTO prompts (
+                        id, name, content, description, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        id,
+                        prompt.name,
+                        prompt.content,
+                        prompt.description,
+                        prompt.created_at,
+                        prompt.updated_at,
+                    ],
+                )
+                .map_err(|e| AppError::Database(format!("Migrate prompt {id} failed: {e}")))?;
+
+                // 根据 app_type 设置 enabled 列（如果该 app 标志已在 apps 中为 true）
+                let _ = app_enabled_col; // 旧 JSON 无法保留 enabled 状态，跳过
             }
             Ok(())
         };
 
-        migrate_app_prompts(&config.prompts.claude.prompts, "claude")?;
-        migrate_app_prompts(&config.prompts.codex.prompts, "codex")?;
-        migrate_app_prompts(&config.prompts.gemini.prompts, "gemini")?;
+        migrate_app_prompts(&config.prompts.claude.prompts, "claude_enabled")?;
+        migrate_app_prompts(&config.prompts.codex.prompts, "codex_enabled")?;
+        migrate_app_prompts(&config.prompts.gemini.prompts, "gemini_enabled")?;
 
         Ok(())
     }

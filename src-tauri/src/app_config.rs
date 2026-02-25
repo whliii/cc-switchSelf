@@ -643,6 +643,16 @@ impl MultiAppConfig {
             });
 
         let id = format!("auto-imported-{timestamp}");
+
+        // 构建 apps 标志：只启用当前 app
+        let mut apps = crate::prompt::PromptApps::default();
+        match app {
+            AppType::Claude => apps.claude = true,
+            AppType::Codex => apps.codex = true,
+            AppType::Gemini => apps.gemini = true,
+            AppType::OpenCode | AppType::OpenClaw => apps.opencode = true,
+        }
+
         let prompt = crate::prompt::Prompt {
             id: id.clone(),
             name: format!(
@@ -651,7 +661,7 @@ impl MultiAppConfig {
             ),
             content,
             description: Some("Automatically imported on first launch".to_string()),
-            enabled: true, // 自动启用
+            apps,
             created_at: Some(timestamp),
             updated_at: Some(timestamp),
         };

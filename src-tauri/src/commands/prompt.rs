@@ -10,42 +10,36 @@ use crate::store::AppState;
 
 #[tauri::command]
 pub async fn get_prompts(
-    app: String,
     state: State<'_, AppState>,
 ) -> Result<IndexMap<String, Prompt>, String> {
-    let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    PromptService::get_prompts(&state, app_type).map_err(|e| e.to_string())
+    PromptService::get_prompts(&state).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn upsert_prompt(
-    app: String,
-    id: String,
     prompt: Prompt,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    PromptService::upsert_prompt(&state, app_type, &id, prompt).map_err(|e| e.to_string())
+    PromptService::upsert_prompt(&state, prompt).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_prompt(
-    app: String,
     id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    PromptService::delete_prompt(&state, app_type, &id).map_err(|e| e.to_string())
+    PromptService::delete_prompt(&state, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn enable_prompt(
-    app: String,
+pub async fn toggle_prompt_app(
     id: String,
+    app: String,
+    enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
-    PromptService::enable_prompt(&state, app_type, &id).map_err(|e| e.to_string())
+    PromptService::toggle_prompt_app(&state, &id, app_type, enabled).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

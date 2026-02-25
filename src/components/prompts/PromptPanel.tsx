@@ -1,63 +1,90 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FileText } from "lucide-react";
-import { type AppId } from "@/lib/api";
-import { usePromptActions } from "@/hooks/usePromptActions";
-import PromptListItem from "./PromptListItem";
-import PromptFormPanel from "./PromptFormPanel";
+import { FileText, Edit3, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  useAllPrompts,
+  useDeletePrompt,
+  useTogglePromptApp,
+} from "@/hooks/usePrompts";
+import type { Prompt } from "@/lib/api/prompts";
+import type { AppId } from "@/lib/api/types";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { AppCountBar } from "@/components/common/AppCountBar";
+import { AppToggleGroup } from "@/components/common/AppToggleGroup";
+import { ListItemRow } from "@/components/common/ListItemRow";
+import { MCP_SKILLS_APP_IDS } from "@/config/appConfig";
+import PromptFormPanel from "./PromptFormPanel";
 
 interface PromptPanelProps {
-  open: boolean;
   onOpenChange: (open: boolean) => void;
-  appId: AppId;
 }
 
 export interface PromptPanelHandle {
   openAdd: () => void;
 }
 
+// Helper: convert prompt apps (4-key) to full Record<AppId, boolean>
+function toAppRecord(apps: Prompt["apps"]): Record<AppId, boolean> {
+  return { ...apps, openclaw: false };
+}
+
 const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
-  ({ open, appId }, ref) => {
+  ({ onOpenChange: _onOpenChange }, ref) => {
     const { t } = useTranslation();
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [confirmDialog, setConfirmDialog] = useState<{
       isOpen: boolean;
-      titleKey: string;
-      messageKey: string;
-      messageParams?: Record<string, unknown>;
+      title: string;
+      message: string;
       onConfirm: () => void;
     } | null>(null);
 
-    const {
-      prompts,
-      loading,
-      reload,
-      savePrompt,
-      deletePrompt,
-      toggleEnabled,
-    } = usePromptActions(appId);
+    const { data: promptsMap, isLoading } = useAllPrompts();
+    const toggleAppMutation = useTogglePromptApp();
+    const deletePromptMutation = useDeletePrompt();
 
-    useEffect(() => {
-      if (open) reload();
-    }, [open, reload]);
+    const promptEntries = useMemo((): Array<[string, Prompt]> => {
+      if (!promptsMap) return [];
+      return Object.entries(promptsMap);
+    }, [promptsMap]);
 
-    // Listen for prompt import events from deep link
-    useEffect(() => {
-      const handlePromptImported = (event: Event) => {
-        const customEvent = event as CustomEvent;
-        // Reload if the import is for this app
-        if (customEvent.detail?.app === appId) {
-          reload();
+    const enabledCounts = useMemo(() => {
+      const counts = {
+        claude: 0,
+        codex: 0,
+        gemini: 0,
+        opencode: 0,
+        openclaw: 0,
+      };
+      promptEntries.forEach(([_, prompt]) => {
+        for (const app of MCP_SKILLS_APP_IDS) {
+          if (prompt.apps[app as keyof typeof prompt.apps]) counts[app]++;
         }
-      };
+      });
+      return counts;
+    }, [promptEntries]);
 
-      window.addEventListener("prompt-imported", handlePromptImported);
-      return () => {
-        window.removeEventListener("prompt-imported", handlePromptImported);
-      };
-    }, [appId, reload]);
+    const handleToggleApp = async (
+      promptId: string,
+      app: AppId,
+      enabled: boolean,
+    ) => {
+      if (app === "openclaw") return;
+      try {
+        await toggleAppMutation.mutateAsync({ id: promptId, app, enabled });
+      } catch (error) {
+        toast.error(t("common.error"), { description: String(error) });
+      }
+    };
+
+    const handleEdit = (id: string) => {
+      setEditingId(id);
+      setIsFormOpen(true);
+    };
 
     const handleAdd = () => {
       setEditingId(null);
@@ -68,48 +95,41 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
       openAdd: handleAdd,
     }));
 
-    const handleEdit = (id: string) => {
-      setEditingId(id);
-      setIsFormOpen(true);
-    };
-
     const handleDelete = (id: string) => {
-      const prompt = prompts[id];
+      const prompt = promptsMap?.[id];
       setConfirmDialog({
         isOpen: true,
-        titleKey: "prompts.confirm.deleteTitle",
-        messageKey: "prompts.confirm.deleteMessage",
-        messageParams: { name: prompt?.name },
+        title: t("prompts.confirm.deleteTitle"),
+        message: t("prompts.confirm.deleteMessage", { name: prompt?.name }),
         onConfirm: async () => {
           try {
-            await deletePrompt(id);
+            await deletePromptMutation.mutateAsync(id);
             setConfirmDialog(null);
-          } catch (e) {
-            // Error handled by hook
+            toast.success(t("common.success"), { closeButton: true });
+          } catch (error) {
+            toast.error(t("common.error"), { description: String(error) });
           }
         },
       });
     };
 
-    const promptEntries = useMemo(() => Object.entries(prompts), [prompts]);
-
-    const enabledPrompt = promptEntries.find(([_, p]) => p.enabled);
+    const handleCloseForm = () => {
+      setIsFormOpen(false);
+      setEditingId(null);
+    };
 
     return (
-      <div className="flex flex-col h-[calc(100vh-8rem)] px-6">
-        <div className="flex-shrink-0 py-4 glass rounded-xl border border-white/10 mb-4 px-6">
-          <div className="text-sm text-muted-foreground">
-            {t("prompts.count", { count: promptEntries.length })} ·{" "}
-            {enabledPrompt
-              ? t("prompts.enabledName", { name: enabledPrompt[1].name })
-              : t("prompts.noneEnabled")}
-          </div>
-        </div>
+      <div className="px-6 flex flex-col h-[calc(100vh-8rem)] overflow-hidden">
+        <AppCountBar
+          totalLabel={t("prompts.count", { count: promptEntries.length })}
+          counts={enabledCounts}
+          appIds={MCP_SKILLS_APP_IDS}
+        />
 
-        <div className="flex-1 overflow-y-auto pb-16">
-          {loading ? (
+        <div className="flex-1 overflow-y-auto overflow-x-hidden pb-24">
+          {isLoading ? (
             <div className="text-center py-12 text-muted-foreground">
-              {t("prompts.loading")}
+              {t("common.loading")}
             </div>
           ) : promptEntries.length === 0 ? (
             <div className="text-center py-12">
@@ -124,36 +144,37 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {promptEntries.map(([id, prompt]) => (
-                <PromptListItem
-                  key={id}
-                  id={id}
-                  prompt={prompt}
-                  onToggle={toggleEnabled}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
+            <TooltipProvider delayDuration={300}>
+              <div className="rounded-xl border border-border-default overflow-hidden">
+                {promptEntries.map(([id, prompt], index) => (
+                  <PromptListItem
+                    key={id}
+                    id={id}
+                    prompt={prompt}
+                    onToggleApp={handleToggleApp}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    isLast={index === promptEntries.length - 1}
+                  />
+                ))}
+              </div>
+            </TooltipProvider>
           )}
         </div>
 
         {isFormOpen && (
           <PromptFormPanel
-            appId={appId}
-            editingId={editingId || undefined}
-            initialData={editingId ? prompts[editingId] : undefined}
-            onSave={savePrompt}
-            onClose={() => setIsFormOpen(false)}
+            editingId={editingId ?? undefined}
+            initialData={editingId && promptsMap ? promptsMap[editingId] : undefined}
+            onClose={handleCloseForm}
           />
         )}
 
         {confirmDialog && (
           <ConfirmDialog
             isOpen={confirmDialog.isOpen}
-            title={t(confirmDialog.titleKey)}
-            message={t(confirmDialog.messageKey, confirmDialog.messageParams)}
+            title={confirmDialog.title}
+            message={confirmDialog.message}
             onConfirm={confirmDialog.onConfirm}
             onCancel={() => setConfirmDialog(null)}
           />
@@ -166,3 +187,78 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
 PromptPanel.displayName = "PromptPanel";
 
 export default PromptPanel;
+
+// ============================================================================
+// List Item
+// ============================================================================
+
+interface PromptListItemProps {
+  id: string;
+  prompt: Prompt;
+  onToggleApp: (promptId: string, app: AppId, enabled: boolean) => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  isLast?: boolean;
+}
+
+const PromptListItem: React.FC<PromptListItemProps> = ({
+  id,
+  prompt,
+  onToggleApp,
+  onEdit,
+  onDelete,
+  isLast,
+}) => {
+  const { t } = useTranslation();
+  const name = prompt.name || id;
+  const description = prompt.description || "";
+
+  return (
+    <ListItemRow isLast={isLast}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-sm text-foreground truncate">
+            {name}
+          </span>
+        </div>
+        {description && (
+          <p
+            className="text-xs text-muted-foreground truncate"
+            title={description}
+          >
+            {description}
+          </p>
+        )}
+      </div>
+
+      <AppToggleGroup
+        apps={toAppRecord(prompt.apps)}
+        onToggle={(app, enabled) => onToggleApp(id, app, enabled)}
+        appIds={MCP_SKILLS_APP_IDS}
+      />
+
+      <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => onEdit(id)}
+          title={t("common.edit")}
+        >
+          <Edit3 size={14} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 hover:text-red-500 hover:bg-red-100 dark:hover:text-red-400 dark:hover:bg-red-500/10"
+          onClick={() => onDelete(id)}
+          title={t("common.delete")}
+        >
+          <Trash2 size={14} />
+        </Button>
+      </div>
+    </ListItemRow>
+  );
+};
