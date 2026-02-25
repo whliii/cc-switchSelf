@@ -1,4 +1,6 @@
 export type { AppId } from "./types";
+export { agentsApi } from "./agents";
+export type { AgentDefinition, AgentDefinitionsMap, AgentAppId } from "./agents";
 export { providersApi, universalProvidersApi } from "./providers";
 export { settingsApi } from "./settings";
 export { backupsApi } from "./settings";

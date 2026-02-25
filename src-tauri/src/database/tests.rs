@@ -499,6 +499,17 @@ fn migration_from_v3_8_schema_v1_to_current_schema_v3() {
         .query_row("SELECT COUNT(*) FROM model_pricing", [], |r| r.get(0))
         .expect("count model_pricing rows");
     assert!(pricing_rows > 0, "model_pricing should be seeded");
+
+    // v5 -> v6：agent_definitions 表必须存在
+    assert!(
+        Database::table_exists(&conn, "agent_definitions").expect("check agent_definitions table"),
+        "agent_definitions table should exist after v5->v6 migration"
+    );
+    assert!(
+        Database::has_column(&conn, "agent_definitions", "enabled_claude")
+            .expect("check agent_definitions column"),
+        "agent_definitions.enabled_claude should exist"
+    );
 }
 
 #[test]

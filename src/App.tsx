@@ -21,6 +21,7 @@ import {
   KeyRound,
   Shield,
   Cpu,
+  Bot,
 } from "lucide-react";
 import type { Provider, VisibleApps } from "@/types";
 import type { EnvConflict } from "@/types/env";
@@ -58,6 +59,7 @@ import { SkillsPage } from "@/components/skills/SkillsPage";
 import UnifiedSkillsPanel from "@/components/skills/UnifiedSkillsPanel";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
+import type { AgentsPanelHandle } from "@/components/agents/AgentsPanel";
 import { UniversalProviderPanel } from "@/components/universal";
 import { McpIcon } from "@/components/BrandIcons";
 import { Button } from "@/components/ui/button";
@@ -206,6 +208,7 @@ function App() {
 
   const promptPanelRef = useRef<any>(null);
   const mcpPanelRef = useRef<any>(null);
+  const agentsPanelRef = useRef<AgentsPanelHandle>(null);
   const skillsPageRef = useRef<any>(null);
   const unifiedSkillsPanelRef = useRef<any>(null);
   const addActionButtonClass =
@@ -720,7 +723,10 @@ function App() {
           );
         case "agents":
           return (
-            <AgentsPanel onOpenChange={() => setCurrentView("providers")} />
+            <AgentsPanel
+              ref={agentsPanelRef}
+              onOpenChange={() => setCurrentView("providers")}
+            />
           );
         case "universal":
           return (
@@ -1005,6 +1011,17 @@ function App() {
                   </Button>
                 </>
               )}
+              {currentView === "agents" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => agentsPanelRef.current?.openAdd()}
+                  className="hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  {t("agents.addAgent")}
+                </Button>
+              )}
               {currentView === "skills" && (
                 <>
                   <Button
@@ -1194,6 +1211,15 @@ function App() {
                               title={t("mcp.title")}
                             >
                               <McpIcon size={16} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setCurrentView("agents")}
+                              className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                              title={t("agents.title")}
+                            >
+                              <Bot className="w-4 h-4" />
                             </Button>
                           </>
                         )}

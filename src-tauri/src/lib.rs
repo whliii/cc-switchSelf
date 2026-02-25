@@ -1,3 +1,5 @@
+mod agent;
+mod agents;
 mod app_config;
 mod app_store;
 mod auto_launch;
@@ -28,6 +30,7 @@ mod store;
 mod tray;
 mod usage_script;
 
+pub use agent::AgentDefinition;
 pub use app_config::{AppType, McpApps, McpServer, MultiAppConfig};
 pub use codex_config::{get_codex_auth_path, get_codex_config_path, write_codex_live_atomic};
 pub use commands::open_provider_terminal;
@@ -44,8 +47,8 @@ pub use mcp::{
 };
 pub use provider::{Provider, ProviderMeta};
 pub use services::{
-    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
-    SkillService, SpeedtestService,
+    AgentsService, ConfigService, EndpointLatency, McpService, PromptService, ProviderService,
+    ProxyService, SkillService, SpeedtestService,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -1053,6 +1056,11 @@ pub fn run() {
             commands::delete_daily_memory_file,
             commands::search_daily_memory_files,
             commands::open_workspace_directory,
+            // Agent management
+            commands::get_agent_definitions,
+            commands::upsert_agent_definition,
+            commands::delete_agent_definition,
+            commands::toggle_agent_app,
         ]);
 
     let app = builder

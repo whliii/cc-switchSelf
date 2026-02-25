@@ -1512,7 +1512,32 @@
     "skillsFailedDescription": "Open the Skills page and click \"Import Existing\" to import manually (or restart and try again)."
   },
   "agents": {
-    "title": "Agents"
+    "title": "Agents",
+    "manage": "Agents",
+    "count": "{{count}} agents",
+    "empty": "No agents yet",
+    "emptyDescription": "Create your first agent definition and enable it for any CLI tool",
+    "addAgent": "Add Agent",
+    "editAgent": "Edit Agent",
+    "profileId": "Profile ID",
+    "profileIdPlaceholder": "e.g. my-coding-agent",
+    "profileName": "Name",
+    "profileNamePlaceholder": "e.g. My Coding Agent",
+    "description": "Description",
+    "descriptionPlaceholder": "Short description (optional)",
+    "content": "Content (System Prompt)",
+    "contentPlaceholder": "Describe the agent's role, behavior, and capabilities...",
+    "targetApps": "Target Apps",
+    "saveSuccess": "Agent saved successfully",
+    "saveFailed": "Failed to save agent",
+    "deleteTitle": "Delete Agent",
+    "deleteConfirm": "Are you sure you want to delete agent \"{{id}}\"? This action cannot be undone.",
+    "deleteSuccess": "Agent deleted",
+    "deleteFailed": "Failed to delete agent",
+    "requiredId": "Profile ID is required",
+    "requiredName": "Name is required",
+    "requiredContent": "Content is required",
+    "duplicateId": "Agent ID \"{{id}}\" already exists"
   },
   "modelTest": {
     "testProvider": "Test model"

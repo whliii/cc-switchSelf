@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+mod agents;
 mod config;
 mod deeplink;
 mod env;
@@ -23,6 +24,7 @@ mod usage;
 mod webdav_sync;
 mod workspace;
 
+pub use agents::*;
 pub use config::*;
 pub use deeplink::*;
 pub use env::*;

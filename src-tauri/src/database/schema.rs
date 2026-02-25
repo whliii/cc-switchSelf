@@ -299,6 +299,24 @@ impl Database {
         let _ = conn.execute("DROP INDEX IF EXISTS idx_failover_queue_order", []);
         let _ = conn.execute("DROP TABLE IF EXISTS failover_queue", []);
 
+        // 13. Agent Definitions 表（v5→v6 迁移新增）
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_definitions (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                description TEXT,
+                enabled_claude   BOOLEAN NOT NULL DEFAULT 0,
+                enabled_codex    BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini   BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0,
+                created_at INTEGER,
+                updated_at INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
         // 为故障转移队列创建索引（基于 providers 表）
         let _ = conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_providers_failover
@@ -359,6 +377,11 @@ impl Database {
                         log::info!("迁移数据库从 v4 到 v5（计费模式支持）");
                         Self::migrate_v4_to_v5(conn)?;
                         Self::set_user_version(conn, 5)?;
+                    }
+                    5 => {
+                        log::info!("迁移数据库从 v5 到 v6（Agent 管理支持）");
+                        Self::migrate_v5_to_v6(conn)?;
+                        Self::set_user_version(conn, 6)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -911,6 +934,29 @@ impl Database {
         }
 
         log::info!("v4 -> v5 迁移完成：已添加计费模式与请求模型字段");
+        Ok(())
+    }
+
+    /// v5 -> v6 迁移：新增 agent_definitions 表
+    fn migrate_v5_to_v6(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_definitions (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                description TEXT,
+                enabled_claude   BOOLEAN NOT NULL DEFAULT 0,
+                enabled_codex    BOOLEAN NOT NULL DEFAULT 0,
+                enabled_gemini   BOOLEAN NOT NULL DEFAULT 0,
+                enabled_opencode BOOLEAN NOT NULL DEFAULT 0,
+                created_at INTEGER,
+                updated_at INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        log::info!("v5 -> v6 迁移完成：已添加 agent_definitions 表");
         Ok(())
     }
 

@@ -1512,7 +1512,32 @@
     "skillsFailedDescription": "请打开 Skills 页面点击“导入已有”手动导入（或重启后再试）。"
   },
   "agents": {
-    "title": "智能体"
+    "title": "智能体",
+    "manage": "智能体",
+    "count": "{{count}} 个智能体",
+    "empty": "暂无智能体",
+    "emptyDescription": "创建你的第一个智能体定义并启用到任意 CLI 工具",
+    "addAgent": "添加智能体",
+    "editAgent": "编辑智能体",
+    "profileId": "配置 ID",
+    "profileIdPlaceholder": "例如 my-coding-agent",
+    "profileName": "名称",
+    "profileNamePlaceholder": "例如 我的编码智能体",
+    "description": "描述",
+    "descriptionPlaceholder": "简短描述（可选）",
+    "content": "内容（系统提示词）",
+    "contentPlaceholder": "描述智能体的角色、行为和能力……",
+    "targetApps": "目标应用",
+    "saveSuccess": "智能体保存成功",
+    "saveFailed": "保存智能体失败",
+    "deleteTitle": "删除智能体",
+    "deleteConfirm": "确定要删除智能体「{{id}}」吗？此操作不可撤销。",
+    "deleteSuccess": "智能体已删除",
+    "deleteFailed": "删除智能体失败",
+    "requiredId": "配置 ID 不能为空",
+    "requiredName": "名称不能为空",
+    "requiredContent": "内容不能为空",
+    "duplicateId": "智能体 ID「{{id}}」已存在"
   },
   "modelTest": {
     "testProvider": "测试模型"

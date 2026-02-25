@@ -1510,7 +1510,32 @@
     "skillsFailedDescription": "Skills 画面で「既存をインポート」をクリックして手動でインポートしてください（または再起動して再試行）。"
   },
   "agents": {
-    "title": "エージェント"
+    "title": "エージェント",
+    "manage": "エージェント",
+    "count": "{{count}} 件のエージェント",
+    "empty": "エージェントがありません",
+    "emptyDescription": "最初のエージェント定義を作成して任意の CLI ツールで有効にしてください",
+    "addAgent": "エージェントを追加",
+    "editAgent": "エージェントを編集",
+    "profileId": "プロファイル ID",
+    "profileIdPlaceholder": "例: my-coding-agent",
+    "profileName": "名前",
+    "profileNamePlaceholder": "例: 私のコーディングエージェント",
+    "description": "説明",
+    "descriptionPlaceholder": "短い説明（任意）",
+    "content": "コンテンツ（システムプロンプト）",
+    "contentPlaceholder": "エージェントの役割、行動、機能を記述してください……",
+    "targetApps": "対象アプリ",
+    "saveSuccess": "エージェントを保存しました",
+    "saveFailed": "エージェントの保存に失敗しました",
+    "deleteTitle": "エージェントを削除",
+    "deleteConfirm": "エージェント「{{id}}」を削除してもよろしいですか？この操作は取り消せません。",
+    "deleteSuccess": "エージェントを削除しました",
+    "deleteFailed": "エージェントの削除に失敗しました",
+    "requiredId": "プロファイル ID は必須です",
+    "requiredName": "名前は必須です",
+    "requiredContent": "コンテンツは必須です",
+    "duplicateId": "エージェント ID「{{id}}」は既に存在します"
   },
   "modelTest": {
     "testProvider": "モデルテスト"
